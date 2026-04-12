@@ -1,6 +1,7 @@
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,103 +11,106 @@ import {
   View,
 } from 'react-native';
 import SensorCard from '../../frontend/components/SensorCard';
+import SpeedCard from '../../frontend/components/SpeedCard';
+import useLocation from '../../frontend/hooks/useLocation';
 
-// index.tsx — Day 3: Live Sensor Data
+// index.tsx — Day 4: GPS Speed Tracking
 //
-// New concepts today:
-//
-// useEffect — runs code AFTER the component appears on screen.
-//   We use it to start the sensor subscriptions when the screen loads
-//   and stop them when the screen unloads (cleanup).
-//
-// useRef — stores a value that doesn't cause re-renders when it changes.
-//   We use it to hold the sensor subscription objects so we can
-//   stop them later without triggering unnecessary renders.
-//
-// Accelerometer.addListener — tells the phone:
-//   "every X milliseconds, give me the current x/y/z acceleration values"
-//
-// subscription.remove() — tells the phone:
-//   "stop sending me sensor data" (saves battery)
+// New today:
+// - useLocation hook gives us live GPS speed
+// - SpeedCard shows speed with color coding
+// - Auto Drive Mode suggestion when speed > 15 km/h
+// - Alert popup asks user to enable Drive Mode
 
 export default function HomeScreen() {
   const [driveModeActive, setDriveModeActive] = useState(false);
   const [sensorsEnabled, setSensorsEnabled] = useState(true);
-
-  // Live sensor data stored in state
-  // When these change, React automatically updates the display
   const [accelData, setAccelData] = useState({ x: 0, y: 0, z: 0 });
   const [gyroData, setGyroData] = useState({ x: 0, y: 0, z: 0 });
-
-  // useRef stores the subscriptions so we can cancel them later
-  // We use ref (not state) because changing it doesn't need a re-render
   const accelSubscription = useRef(null);
   const gyroSubscription = useRef(null);
 
-  // ── START SENSORS ──────────────────────────────────────
+  // ── GPS HOOK ──────────────────────────────────────────
+  // useLocation() runs our GPS logic and returns live data
+  // Every time speed changes, this component re-renders with new value
+  const {
+    speed,
+    permissionStatus,
+    isTracking,
+    error: locationError,
+  } = useLocation();
+
+  // ── AUTO DRIVE MODE SUGGESTION ────────────────────────
+  // Watch the speed — if it crosses 15 km/h and Drive Mode is OFF,
+  // show an alert asking the user to turn it on
+  // useRef tracks if we already showed the alert (avoid spamming)
+  const alertShown = useRef(false);
+
+  useEffect(() => {
+    if (speed >= 15 && !driveModeActive && !alertShown.current) {
+      alertShown.current = true;
+
+      // Alert.alert shows a native popup dialog on the phone
+      Alert.alert(
+        '🚗 Driving Detected',
+        `Your speed is ${speed.toFixed(1)} km/h.\nActivate Drive Mode for safety?`,
+        [
+          {
+            text: 'Not Now',
+            style: 'cancel',
+            onPress: () => {
+              // Reset after 30 seconds so it can ask again
+              setTimeout(() => { alertShown.current = false; }, 30000);
+            },
+          },
+          {
+            text: 'Activate',
+            onPress: () => {
+              setDriveModeActive(true);
+              alertShown.current = false;
+            },
+          },
+        ]
+      );
+    }
+
+    // If speed drops below 5 km/h reset the alert flag
+    if (speed < 5) {
+      alertShown.current = false;
+    }
+  }, [speed, driveModeActive]);
+
+  // ── SENSORS ───────────────────────────────────────────
   const startSensors = () => {
-    // How often to read sensors — 200ms = 5 times per second
-    // Lower = faster but uses more battery
     Accelerometer.setUpdateInterval(200);
     Gyroscope.setUpdateInterval(200);
-
-    // addListener gives us new data every 200ms
-    // The { x, y, z } object arrives automatically
-    accelSubscription.current = Accelerometer.addListener((data) => {
-      setAccelData(data); // update state → triggers re-render → UI updates
-    });
-
-    gyroSubscription.current = Gyroscope.addListener((data) => {
-      setGyroData(data);
-    });
+    accelSubscription.current = Accelerometer.addListener(setAccelData);
+    gyroSubscription.current = Gyroscope.addListener(setGyroData);
   };
 
-  // ── STOP SENSORS ───────────────────────────────────────
   const stopSensors = () => {
-    // .remove() stops the sensor from sending data
-    // Important: always stop sensors when not needed to save battery
-    if (accelSubscription.current) {
-      accelSubscription.current.remove();
-      accelSubscription.current = null;
-    }
-    if (gyroSubscription.current) {
-      gyroSubscription.current.remove();
-      gyroSubscription.current = null;
-    }
+    accelSubscription.current?.remove();
+    gyroSubscription.current?.remove();
+    accelSubscription.current = null;
+    gyroSubscription.current = null;
   };
 
-  // ── useEffect: START SENSORS WHEN SCREEN LOADS ─────────
-  // The [] at the end means "run this only once when component mounts"
-  // The return function is the "cleanup" — runs when screen unmounts
   useEffect(() => {
-    if (sensorsEnabled) {
-      startSensors();
-    }
-    // Cleanup: stop sensors when user navigates away from this screen
+    if (sensorsEnabled) startSensors();
     return () => stopSensors();
-  }, []); // eslint-disable-line
+  }, []);
 
-  // ── TOGGLE SENSORS ON/OFF ──────────────────────────────
   const handleSensorToggle = (value) => {
     setSensorsEnabled(value);
     if (value) {
       startSensors();
     } else {
       stopSensors();
-      // Reset to zero when stopped
       setAccelData({ x: 0, y: 0, z: 0 });
       setGyroData({ x: 0, y: 0, z: 0 });
     }
   };
 
-  // ── DRIVE MODE TOGGLE ──────────────────────────────────
-  const toggleDriveMode = () => {
-    setDriveModeActive((prev) => !prev);
-  };
-
-  // ── MOVEMENT DETECTION ─────────────────────────────────
-  // Simple rule: if total acceleration > 1.2, the phone is moving
-  // We subtract gravity (≈1.0 on z-axis when phone is flat)
   const totalMotion = Math.abs(accelData.x) + Math.abs(accelData.y) + Math.abs(accelData.z);
   const isMoving = totalMotion > 1.5;
 
@@ -129,7 +133,7 @@ export default function HomeScreen() {
             styles.driveButton,
             driveModeActive ? styles.driveButtonActive : styles.driveButtonInactive,
           ]}
-          onPress={toggleDriveMode}
+          onPress={() => setDriveModeActive(prev => !prev)}
           activeOpacity={0.8}
         >
           <Text style={styles.driveButtonIcon}>
@@ -142,6 +146,14 @@ export default function HomeScreen() {
             {driveModeActive ? 'Tap to deactivate' : 'Tap to activate'}
           </Text>
         </TouchableOpacity>
+
+        {/* ── GPS SPEED CARD ── */}
+        {/* This is new today — shows real live speed! */}
+        <SpeedCard
+          speed={speed}
+          isTracking={isTracking}
+          permissionStatus={permissionStatus}
+        />
 
         {/* ── MOTION STATUS ── */}
         <View style={styles.card}>
@@ -159,7 +171,7 @@ export default function HomeScreen() {
             </Text>
           </View>
           <Text style={styles.cardHint}>
-            Total motion intensity: {totalMotion.toFixed(2)}
+            Motion: {totalMotion.toFixed(2)} · Speed: {speed.toFixed(1)} km/h
             {'\n'}ML classification starts Day 6
           </Text>
         </View>
@@ -168,7 +180,6 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <View style={styles.toggleRow}>
             <Text style={styles.toggleLabel}>📡  Live Sensor Reading</Text>
-            {/* Switch is a toggle/switch UI element built into React Native */}
             <Switch
               value={sensorsEnabled}
               onValueChange={handleSensorToggle}
@@ -177,15 +188,11 @@ export default function HomeScreen() {
             />
           </View>
           <Text style={styles.cardHint}>
-            {sensorsEnabled
-              ? 'Sensors active — move your phone to see values change'
-              : 'Sensors paused — toggle to resume'}
+            {sensorsEnabled ? 'Move your phone to see values change' : 'Sensors paused'}
           </Text>
         </View>
 
-        {/* ── ACCELEROMETER CARD ── */}
-        {/* This shows live x/y/z acceleration values */}
-        {/* Move your phone around and watch them change! */}
+        {/* ── ACCELEROMETER ── */}
         <SensorCard
           title="Accelerometer"
           icon="📱"
@@ -193,9 +200,7 @@ export default function HomeScreen() {
           color="#58a6ff"
         />
 
-        {/* ── GYROSCOPE CARD ── */}
-        {/* This shows live rotation values */}
-        {/* Rotate/tilt your phone and watch them change! */}
+        {/* ── GYROSCOPE ── */}
         <SensorCard
           title="Gyroscope"
           icon="🔄"
@@ -203,39 +208,25 @@ export default function HomeScreen() {
           color="#bc8cff"
         />
 
-        {/* ── RAW DATA LOG ── */}
-        {/* Shows the raw numbers like a terminal/console */}
-        {/* This is how the data will be sent to the ML model on Day 7 */}
+        {/* ── DATA SUMMARY ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>📊 Raw Data Log</Text>
+          <Text style={styles.cardTitle}>📊 Data Being Collected</Text>
           <Text style={styles.cardHint}>
-            This is the data format we'll send to the ML model on Day 7
+            This is the full dataset we'll send to the ML model on Day 7
           </Text>
           <View style={styles.codeBox}>
             <Text style={styles.codeText}>
               {JSON.stringify({
+                speed_kmh: speed.toFixed(2),
                 accel_x: accelData.x.toFixed(4),
                 accel_y: accelData.y.toFixed(4),
                 accel_z: accelData.z.toFixed(4),
                 gyro_x: gyroData.x.toFixed(4),
                 gyro_y: gyroData.y.toFixed(4),
                 gyro_z: gyroData.z.toFixed(4),
-                timestamp: new Date().toISOString(),
               }, null, 2)}
             </Text>
           </View>
-        </View>
-
-        {/* ── SPEED CARD ── */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Current Speed</Text>
-          <View style={styles.speedRow}>
-            <Text style={styles.speedNumber}>0</Text>
-            <Text style={styles.speedUnit}>km/h</Text>
-          </View>
-          <Text style={styles.cardHint}>
-            Live GPS speed tracking coming Day 4
-          </Text>
         </View>
 
       </ScrollView>
@@ -278,9 +269,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   toggleLabel: { fontSize: 14, color: '#c9d1d9', fontWeight: '600' },
-  speedRow: { flexDirection: 'row', alignItems: 'flex-end' },
-  speedNumber: { fontSize: 52, fontWeight: 'bold', color: '#58a6ff', lineHeight: 56 },
-  speedUnit: { fontSize: 18, color: '#8892b0', marginBottom: 8, marginLeft: 8 },
   codeBox: {
     backgroundColor: '#0d1117', borderRadius: 8, padding: 12,
     marginTop: 10, borderWidth: 1, borderColor: '#21262d',
