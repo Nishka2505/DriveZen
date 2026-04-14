@@ -1,118 +1,90 @@
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import ActivityCard from '../../frontend/components/ActivityCard';
+import DriveModeButton from '../../frontend/components/DriveModeButton';
 import SensorCard from '../../frontend/components/SensorCard';
 import SpeedCard from '../../frontend/components/SpeedCard';
+import useDriveDetection from '../../frontend/hooks/useDriveDetection';
 import useLocation from '../../frontend/hooks/useLocation';
+import useMLPrediction from '../../frontend/hooks/useMLPrediction';
 
-// index.tsx — Day 4: GPS Speed Tracking
+// index.tsx — Day 9: Auto Drive Mode
 //
-// New today:
-// - useLocation hook gives us live GPS speed
-// - SpeedCard shows speed with color coding
-// - Auto Drive Mode suggestion when speed > 15 km/h
-// - Alert popup asks user to enable Drive Mode
+// Today the app fully drives itself (pun intended).
+// No user interaction needed — the app detects driving
+// automatically and activates Drive Mode on its own.
+//
+// New hook: useDriveDetection
+// Takes ML prediction + speed → outputs driveModeActive automatically
 
 export default function HomeScreen() {
-  const [driveModeActive, setDriveModeActive] = useState(false);
   const [sensorsEnabled, setSensorsEnabled] = useState(true);
   const [accelData, setAccelData] = useState({ x: 0, y: 0, z: 0 });
   const [gyroData, setGyroData] = useState({ x: 0, y: 0, z: 0 });
-  const accelSubscription = useRef(null);
-  const gyroSubscription = useRef(null);
+  const accelSub = useRef(null);
+  const gyroSub = useRef(null);
 
-  // ── GPS HOOK ──────────────────────────────────────────
-  // useLocation() runs our GPS logic and returns live data
-  // Every time speed changes, this component re-renders with new value
+  // ── GPS ───────────────────────────────────────────────
+  const { speed, permissionStatus, isTracking } = useLocation();
+
+  // ── ML PREDICTION ─────────────────────────────────────
   const {
-    speed,
-    permissionStatus,
-    isTracking,
-    error: locationError,
-  } = useLocation();
+    prediction,
+    isConnected,
+    isLoading,
+    error: apiError,
+    predictionCount,
+  } = useMLPrediction(accelData, gyroData, speed);
 
-  // ── AUTO DRIVE MODE SUGGESTION ────────────────────────
-  // Watch the speed — if it crosses 15 km/h and Drive Mode is OFF,
-  // show an alert asking the user to turn it on
-  // useRef tracks if we already showed the alert (avoid spamming)
-  const alertShown = useRef(false);
-
-  useEffect(() => {
-    if (speed >= 15 && !driveModeActive && !alertShown.current) {
-      alertShown.current = true;
-
-      // Alert.alert shows a native popup dialog on the phone
-      Alert.alert(
-        '🚗 Driving Detected',
-        `Your speed is ${speed.toFixed(1)} km/h.\nActivate Drive Mode for safety?`,
-        [
-          {
-            text: 'Not Now',
-            style: 'cancel',
-            onPress: () => {
-              // Reset after 30 seconds so it can ask again
-              setTimeout(() => { alertShown.current = false; }, 30000);
-            },
-          },
-          {
-            text: 'Activate',
-            onPress: () => {
-              setDriveModeActive(true);
-              alertShown.current = false;
-            },
-          },
-        ]
-      );
-    }
-
-    // If speed drops below 5 km/h reset the alert flag
-    if (speed < 5) {
-      alertShown.current = false;
-    }
-  }, [speed, driveModeActive]);
+  // ── AUTO DRIVE DETECTION ──────────────────────────────
+  // This is the new hook today!
+  // It watches prediction + speed and automatically
+  // activates/deactivates Drive Mode
+  const {
+    driveModeActive,
+    toggleDriveMode,
+    driveSessionSeconds,
+    driveSessionFormatted,
+    detectionState,
+    completedSessions,
+  } = useDriveDetection(prediction, speed);
 
   // ── SENSORS ───────────────────────────────────────────
   const startSensors = () => {
     Accelerometer.setUpdateInterval(200);
     Gyroscope.setUpdateInterval(200);
-    accelSubscription.current = Accelerometer.addListener(setAccelData);
-    gyroSubscription.current = Gyroscope.addListener(setGyroData);
+    accelSub.current = Accelerometer.addListener(setAccelData);
+    gyroSub.current = Gyroscope.addListener(setGyroData);
   };
 
   const stopSensors = () => {
-    accelSubscription.current?.remove();
-    gyroSubscription.current?.remove();
-    accelSubscription.current = null;
-    gyroSubscription.current = null;
+    accelSub.current?.remove();
+    gyroSub.current?.remove();
+    accelSub.current = null;
+    gyroSub.current = null;
   };
 
   useEffect(() => {
-    if (sensorsEnabled) startSensors();
+    startSensors();
     return () => stopSensors();
   }, []);
 
   const handleSensorToggle = (value) => {
     setSensorsEnabled(value);
-    if (value) {
-      startSensors();
-    } else {
-      stopSensors();
+    value ? startSensors() : stopSensors();
+    if (!value) {
       setAccelData({ x: 0, y: 0, z: 0 });
       setGyroData({ x: 0, y: 0, z: 0 });
     }
   };
-
-  const totalMotion = Math.abs(accelData.x) + Math.abs(accelData.y) + Math.abs(accelData.z);
-  const isMoving = totalMotion > 1.5;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -127,52 +99,122 @@ export default function HomeScreen() {
           <Text style={styles.appTagline}>AI Driving Safety</Text>
         </View>
 
-        {/* ── DRIVE MODE BUTTON ── */}
-        <TouchableOpacity
-          style={[
-            styles.driveButton,
-            driveModeActive ? styles.driveButtonActive : styles.driveButtonInactive,
-          ]}
-          onPress={() => setDriveModeActive(prev => !prev)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.driveButtonIcon}>
-            {driveModeActive ? '🛡️' : '🚗'}
-          </Text>
-          <Text style={styles.driveButtonText}>
-            {driveModeActive ? 'DRIVE MODE ON' : 'DRIVE MODE OFF'}
-          </Text>
-          <Text style={styles.driveButtonSub}>
-            {driveModeActive ? 'Tap to deactivate' : 'Tap to activate'}
-          </Text>
-        </TouchableOpacity>
+        {/* ── CONNECTION WARNING ── */}
+        {!isConnected && (
+          <View style={styles.warningBanner}>
+            <Text style={styles.warningText}>
+              ⚠️  Backend not connected — run python app.py on your PC
+            </Text>
+          </View>
+        )}
 
-        {/* ── GPS SPEED CARD ── */}
-        {/* This is new today — shows real live speed! */}
+        {/* ── DRIVE MODE BUTTON ── */}
+        {/* Now uses the smart DriveModeButton component */}
+        <DriveModeButton
+          driveModeActive={driveModeActive}
+          onPress={toggleDriveMode}
+          detectionState={detectionState}
+          sessionTime={driveSessionFormatted}
+          speed={speed}
+          activity={prediction.activity}
+        />
+
+        {/* ── SESSION INFO ── */}
+        {driveModeActive && (
+          <View style={styles.sessionCard}>
+            <Text style={styles.sessionTitle}>🏁 Current Session</Text>
+            <View style={styles.sessionRow}>
+              <View style={styles.sessionStat}>
+                <Text style={styles.sessionValue}>{driveSessionFormatted}</Text>
+                <Text style={styles.sessionLabel}>Duration</Text>
+              </View>
+              <View style={styles.sessionDivider} />
+              <View style={styles.sessionStat}>
+                <Text style={styles.sessionValue}>
+                  {speed.toFixed(1)}
+                </Text>
+                <Text style={styles.sessionLabel}>km/h</Text>
+              </View>
+              <View style={styles.sessionDivider} />
+              <View style={styles.sessionStat}>
+                <Text style={styles.sessionValue}>
+                  {(prediction.confidence * 100).toFixed(0)}%
+                </Text>
+                <Text style={styles.sessionLabel}>Confidence</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── COMPLETED SESSIONS ── */}
+        {completedSessions.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Recent Sessions</Text>
+            {completedSessions.slice(0, 3).map((session, i) => (
+              <View key={i} style={styles.sessionHistoryRow}>
+                <Text style={styles.sessionHistoryIcon}>🚗</Text>
+                <Text style={styles.sessionHistoryTime}>{session.date}</Text>
+                <Text style={styles.sessionHistoryDuration}>
+                  {Math.floor(session.duration / 60)}m {session.duration % 60}s
+                </Text>
+                <Text style={styles.sessionHistoryScore}>
+                  +{session.score} pts
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ── ML ACTIVITY CARD ── */}
+        <ActivityCard
+          activity={prediction.activity}
+          confidence={prediction.confidence}
+          allProbs={prediction.all_probabilities}
+          isConnected={isConnected}
+          isLoading={isLoading}
+          error={apiError}
+          predictionCount={predictionCount}
+        />
+
+        {/* ── GPS SPEED ── */}
         <SpeedCard
           speed={speed}
           isTracking={isTracking}
           permissionStatus={permissionStatus}
         />
 
-        {/* ── MOTION STATUS ── */}
+        {/* ── DETECTION DEBUG INFO ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Motion Status</Text>
-          <View style={styles.statusRow}>
-            <View style={[
-              styles.statusDot,
-              isMoving ? styles.dotActive : styles.dotInactive
-            ]} />
-            <Text style={[
-              styles.statusText,
-              isMoving ? styles.statusTextActive : styles.statusTextInactive
-            ]}>
-              {isMoving ? 'MOVEMENT DETECTED' : 'STATIONARY'}
+          <Text style={styles.cardTitle}>🔍 Detection Status</Text>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugLabel}>State</Text>
+            <Text style={[styles.debugValue, {
+              color: detectionState === 'DRIVING' ? '#00ff87' :
+                     detectionState === 'CONFIRMING' ? '#ffa657' : '#8892b0'
+            }]}>
+              {detectionState}
             </Text>
           </View>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugLabel}>ML Activity</Text>
+            <Text style={styles.debugValue}>{prediction.activity}</Text>
+          </View>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugLabel}>ML Confidence</Text>
+            <Text style={styles.debugValue}>
+              {(prediction.confidence * 100).toFixed(1)}%
+            </Text>
+          </View>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugLabel}>GPS Speed</Text>
+            <Text style={styles.debugValue}>{speed.toFixed(1)} km/h</Text>
+          </View>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugLabel}>API Predictions</Text>
+            <Text style={styles.debugValue}>{predictionCount}</Text>
+          </View>
           <Text style={styles.cardHint}>
-            Motion: {totalMotion.toFixed(2)} · Speed: {speed.toFixed(1)} km/h
-            {'\n'}ML classification starts Day 6
+            Requires ML=driving (70%+) AND speed≥15 km/h for 6+ seconds to activate
           </Text>
         </View>
 
@@ -187,47 +229,17 @@ export default function HomeScreen() {
               thumbColor={sensorsEnabled ? '#00ff87' : '#484f58'}
             />
           </View>
-          <Text style={styles.cardHint}>
-            {sensorsEnabled ? 'Move your phone to see values change' : 'Sensors paused'}
-          </Text>
         </View>
 
-        {/* ── ACCELEROMETER ── */}
+        {/* ── SENSOR CARDS ── */}
         <SensorCard
-          title="Accelerometer"
-          icon="📱"
-          data={accelData}
-          color="#58a6ff"
+          title="Accelerometer" icon="📱"
+          data={accelData} color="#58a6ff"
         />
-
-        {/* ── GYROSCOPE ── */}
         <SensorCard
-          title="Gyroscope"
-          icon="🔄"
-          data={gyroData}
-          color="#bc8cff"
+          title="Gyroscope" icon="🔄"
+          data={gyroData} color="#bc8cff"
         />
-
-        {/* ── DATA SUMMARY ── */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📊 Data Being Collected</Text>
-          <Text style={styles.cardHint}>
-            This is the full dataset we'll send to the ML model on Day 7
-          </Text>
-          <View style={styles.codeBox}>
-            <Text style={styles.codeText}>
-              {JSON.stringify({
-                speed_kmh: speed.toFixed(2),
-                accel_x: accelData.x.toFixed(4),
-                accel_y: accelData.y.toFixed(4),
-                accel_z: accelData.z.toFixed(4),
-                gyro_x: gyroData.x.toFixed(4),
-                gyro_y: gyroData.y.toFixed(4),
-                gyro_z: gyroData.z.toFixed(4),
-              }, null, 2)}
-            </Text>
-          </View>
-        </View>
 
       </ScrollView>
     </SafeAreaView>
@@ -237,18 +249,30 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#0d1117' },
   scroll: { paddingHorizontal: 20, paddingBottom: 100 },
-  header: { paddingTop: 20, paddingBottom: 24, alignItems: 'center' },
+  header: { paddingTop: 20, paddingBottom: 20, alignItems: 'center' },
   appName: { fontSize: 32, fontWeight: 'bold', color: '#ffffff', marginBottom: 4 },
   appTagline: { fontSize: 13, color: '#8892b0', letterSpacing: 2 },
-  driveButton: {
-    borderRadius: 20, paddingVertical: 28,
-    alignItems: 'center', marginBottom: 20, borderWidth: 2,
+  warningBanner: {
+    backgroundColor: '#2d1f0a', borderRadius: 10,
+    padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#ffa657',
   },
-  driveButtonActive: { backgroundColor: '#0d2b1e', borderColor: '#00ff87' },
-  driveButtonInactive: { backgroundColor: '#161b22', borderColor: '#30363d' },
-  driveButtonIcon: { fontSize: 44, marginBottom: 10 },
-  driveButtonText: { fontSize: 20, fontWeight: 'bold', color: '#ffffff', marginBottom: 4 },
-  driveButtonSub: { fontSize: 13, color: '#8892b0' },
+  warningText: { fontSize: 12, color: '#ffa657', textAlign: 'center' },
+  sessionCard: {
+    backgroundColor: '#0d2b1e', borderRadius: 16,
+    padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#00ff87',
+  },
+  sessionTitle: {
+    fontSize: 12, color: '#00ff87', textTransform: 'uppercase',
+    letterSpacing: 1.5, fontWeight: '600', marginBottom: 14,
+  },
+  sessionRow: { flexDirection: 'row', alignItems: 'center' },
+  sessionStat: { flex: 1, alignItems: 'center' },
+  sessionValue: {
+    fontSize: 28, fontWeight: 'bold', color: '#ffffff',
+    fontVariant: ['tabular-nums'],
+  },
+  sessionLabel: { fontSize: 11, color: '#8892b0', marginTop: 4 },
+  sessionDivider: { width: 1, height: 40, backgroundColor: '#21262d' },
   card: {
     backgroundColor: '#161b22', borderRadius: 16,
     padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#21262d',
@@ -257,24 +281,21 @@ const styles = StyleSheet.create({
     fontSize: 12, color: '#8892b0', textTransform: 'uppercase',
     letterSpacing: 1.5, marginBottom: 14, fontWeight: '600',
   },
-  cardHint: { fontSize: 12, color: '#484f58', marginTop: 8, lineHeight: 18 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
-  dotActive: { backgroundColor: '#00ff87' },
-  dotInactive: { backgroundColor: '#484f58' },
-  statusText: { fontSize: 18, fontWeight: 'bold' },
-  statusTextActive: { color: '#00ff87' },
-  statusTextInactive: { color: '#484f58' },
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  cardHint: { fontSize: 12, color: '#484f58', marginTop: 10, lineHeight: 18 },
+  sessionHistoryRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#21262d',
   },
+  sessionHistoryIcon: { fontSize: 18, marginRight: 10 },
+  sessionHistoryTime: { flex: 1, fontSize: 13, color: '#8892b0' },
+  sessionHistoryDuration: { fontSize: 13, color: '#c9d1d9', marginRight: 12 },
+  sessionHistoryScore: { fontSize: 13, color: '#00ff87', fontWeight: '600' },
+  debugRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#21262d',
+  },
+  debugLabel: { fontSize: 13, color: '#8892b0' },
+  debugValue: { fontSize: 13, color: '#c9d1d9', fontWeight: '600' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggleLabel: { fontSize: 14, color: '#c9d1d9', fontWeight: '600' },
-  codeBox: {
-    backgroundColor: '#0d1117', borderRadius: 8, padding: 12,
-    marginTop: 10, borderWidth: 1, borderColor: '#21262d',
-  },
-  codeText: {
-    fontSize: 11, color: '#00ff87',
-    fontFamily: 'monospace', lineHeight: 18,
-  },
 });
