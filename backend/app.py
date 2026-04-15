@@ -1,3 +1,12 @@
+# from attention import detect_attention  ← temporarily disabled
+def detect_attention(image_base64):
+    return {
+        'distracted': False,
+        'reason': 'Attention monitoring coming soon',
+        'face_detected': False,
+        'ear_left': 0, 'ear_right': 0,
+        'avg_ear': 0, 'head_tilt': 0,
+    }
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import joblib
@@ -119,12 +128,46 @@ def predict():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# At the top of app.py add this import
+from attention import detect_attention
+
+# Replace the /attention route with this:
 @app.route('/attention', methods=['POST'])
 def attention():
-    return jsonify({
-        'distracted': False,
-        'message': 'Camera attention monitoring coming Day 11',
-    })
+    """
+    POST /attention
+    Receives a base64 camera frame and returns distraction status.
+
+    Expected JSON:
+    { "frame": "base64_encoded_image_string" }
+
+    Returns:
+    {
+        "distracted": true/false,
+        "reason": "Eyes closed/drowsy",
+        "ear_left": 0.25,
+        "ear_right": 0.24,
+        "head_tilt": 12.5,
+        "face_detected": true
+    }
+    """
+    data = request.get_json()
+
+    if not data or 'frame' not in data:
+        return jsonify({'error': 'No frame provided'}), 400
+
+    try:
+        result = detect_attention(data['frame'])
+
+        # Log to console
+        status = '😴 DISTRACTED' if result['distracted'] else '👀 Attentive'
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] "
+              f"Attention → {status} | {result.get('reason', '')}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/history', methods=['GET'])
 def history():
