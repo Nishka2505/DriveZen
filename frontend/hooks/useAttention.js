@@ -1,18 +1,15 @@
-import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_URL } from '../context/DriveContext';
 
-// useAttention.js — Camera attention monitoring hook
+// useAttention.js — Day 12: Improved attention monitoring
 //
-// How it works:
-// 1. Every 1.5 seconds capture a frame from the camera
-// 2. Convert to base64 and send to POST /attention
-// 3. If distracted → play alert sound + increment counter
-// 4. If distracted 3 times in a row → trigger full screen warning
-//
-// This hook doesn't handle the camera itself —
-// the CameraMonitor component does that.
-// This hook just receives frames and sends them to the API.
+// New today:
+// - Haptic feedback (phone vibrates when distracted)
+// - Distraction history log with timestamps
+// - Distraction rate calculation (distractions per minute)
+// - Smarter consecutive detection with cooldown
+// - Warning level system: CAUTION → WARNING → CRITICAL
 
 export default function useAttention(driveModeActive) {
 
@@ -20,54 +17,89 @@ export default function useAttention(driveModeActive) {
   const [distractionReason, setDistractionReason] = useState('');
   const [distractionCount, setDistractionCount] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
+  const [warningLevel, setWarningLevel] = useState('CAUTION');
   const [attentionData, setAttentionData] = useState(null);
-  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [distractionHistory, setDistractionHistory] = useState([]);
+  const [distractionRate, setDistractionRate] = useState(0);
 
-  // Sound reference
-  const alertSound = useRef(null);
-
-  // Consecutive distraction counter
+  // Tracking refs
   const consecutiveDistractions = useRef(0);
-
-  // Whether we're currently sending a frame
+  const consecutiveAttentive = useRef(0);
   const isSending = useRef(false);
+  const sessionStartTime = useRef(null);
+  const totalDistractions = useRef(0);
+  const lastAlertTime = useRef(0);
+  const ALERT_COOLDOWN = 3000; // 3 seconds between alerts
 
-  // ── LOAD ALERT SOUND ──────────────────────────────────
+  // Start session timer when Drive Mode turns ON
   useEffect(() => {
-    loadSound();
-    return () => {
-      if (alertSound.current) {
-        alertSound.current.unloadAsync();
-      }
-    };
-  }, []);
-
-  const loadSound = async () => {
-    try {
-      // Use a system sound — works without audio files
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: 'https://www.soundjay.com/buttons/sounds/beep-01a.mp3' },
-        { shouldPlay: false }
-      );
-      alertSound.current = sound;
-    } catch (error) {
-      console.log('Could not load alert sound:', error);
+    if (driveModeActive) {
+      sessionStartTime.current = Date.now();
+    } else {
+      // Reset everything when Drive Mode turns OFF
+      setIsDistracted(false);
+      setShowWarning(false);
+      setWarningLevel('CAUTION');
+      setDistractionCount(0);
+      consecutiveDistractions.current = 0;
+      consecutiveAttentive.current = 0;
+      totalDistractions.current = 0;
+      sessionStartTime.current = null;
     }
+  }, [driveModeActive]);
+
+  // ── CALCULATE DISTRACTION RATE ─────────────────────────
+  // How many distractions per minute — lower is safer
+  useEffect(() => {
+    if (!sessionStartTime.current || totalDistractions.current === 0) {
+      setDistractionRate(0);
+      return;
+    }
+    const minutesElapsed = (Date.now() - sessionStartTime.current) / 60000;
+    if (minutesElapsed > 0) {
+      setDistractionRate(
+        Math.round((totalDistractions.current / minutesElapsed) * 10) / 10
+      );
+    }
+  }, [distractionCount]);
+
+  // ── DETERMINE WARNING LEVEL ────────────────────────────
+  const getWarningLevel = (count) => {
+    if (count >= 5) return 'CRITICAL';
+    if (count >= 3) return 'WARNING';
+    return 'CAUTION';
   };
 
-  const playAlert = async () => {
+  // ── TRIGGER HAPTIC ALERT ───────────────────────────────
+  const triggerHapticAlert = async (level) => {
     try {
-      if (alertSound.current) {
-        await alertSound.current.replayAsync();
+      const now = Date.now();
+      if (now - lastAlertTime.current < ALERT_COOLDOWN) return;
+      lastAlertTime.current = now;
+
+      switch (level) {
+        case 'CRITICAL':
+          // Heavy vibration for critical
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Error
+          );
+          break;
+        case 'WARNING':
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Warning
+          );
+          break;
+        default:
+          await Haptics.impactAsync(
+            Haptics.ImpactFeedbackStyle.Medium
+          );
       }
     } catch (error) {
-      console.log('Could not play alert:', error);
+      console.log('Haptics not available:', error);
     }
   };
 
   // ── ANALYZE FRAME ──────────────────────────────────────
-  // This is called by the CameraMonitor component
-  // with a base64 encoded frame
   const analyzeFrame = useCallback(async (base64Frame) => {
     if (!driveModeActive || isSending.current) return;
     isSending.current = true;
@@ -86,61 +118,87 @@ export default function useAttention(driveModeActive) {
 
       if (data.distracted) {
         consecutiveDistractions.current += 1;
+        consecutiveAttentive.current = 0;
+
         setIsDistracted(true);
         setDistractionReason(data.reason || 'Distraction detected');
-        setDistractionCount(prev => prev + 1);
 
-        // Play alert sound
-        await playAlert();
+        // Only count as a new distraction after 2 consecutive frames
+        // Avoids counting a single brief glance as multiple distractions
+        if (consecutiveDistractions.current === 2) {
+          totalDistractions.current += 1;
+          const newCount = totalDistractions.current;
+          setDistractionCount(newCount);
 
-        // Show full screen warning after 3 consecutive distractions
-        if (consecutiveDistractions.current >= 3) {
-          setShowWarning(true);
-          consecutiveDistractions.current = 0;
+          // Add to history
+          const historyEntry = {
+            id: Date.now().toString(),
+            time: new Date().toLocaleTimeString(),
+            reason: data.reason || 'Distraction detected',
+            severity: getWarningLevel(newCount),
+          };
+          setDistractionHistory(prev => [historyEntry, ...prev.slice(0, 9)]);
+
+          // Determine warning level
+          const level = getWarningLevel(newCount);
+          setWarningLevel(level);
+
+          // Haptic alert
+          await triggerHapticAlert(level);
+
+          // Show full screen warning at WARNING and CRITICAL levels
+          if (consecutiveDistractions.current >= 3) {
+            setShowWarning(true);
+          }
         }
 
       } else {
-        // Attentive — reset counters
+        // Attentive
+        consecutiveAttentive.current += 1;
         consecutiveDistractions.current = 0;
-        setIsDistracted(false);
-        setDistractionReason('');
-        setShowWarning(false);
+
+        // Only mark as attentive after 2 consecutive attentive frames
+        if (consecutiveAttentive.current >= 2) {
+          setIsDistracted(false);
+          setDistractionReason('');
+        }
+
+        // Auto-dismiss warning after 5 attentive frames
+        if (consecutiveAttentive.current >= 5) {
+          setShowWarning(false);
+        }
       }
 
     } catch (error) {
-      // Silently fail — don't interrupt driving for API errors
       console.log('Attention API error:', error.message);
     } finally {
       isSending.current = false;
     }
   }, [driveModeActive]);
 
-  // ── DISMISS WARNING ────────────────────────────────────
   const dismissWarning = useCallback(() => {
     setShowWarning(false);
     consecutiveDistractions.current = 0;
   }, []);
 
-  // ── RESET WHEN DRIVE MODE TURNS OFF ───────────────────
-  useEffect(() => {
-    if (!driveModeActive) {
-      setIsDistracted(false);
-      setShowWarning(false);
-      setDistractionCount(0);
-      consecutiveDistractions.current = 0;
-    } else {
-      setIsMonitoring(true);
-    }
-  }, [driveModeActive]);
+  const clearHistory = useCallback(() => {
+    setDistractionHistory([]);
+    setDistractionCount(0);
+    totalDistractions.current = 0;
+  }, []);
 
   return {
     isDistracted,
     distractionReason,
     distractionCount,
     showWarning,
+    warningLevel,
     dismissWarning,
     attentionData,
     isMonitoring: driveModeActive,
     analyzeFrame,
+    distractionHistory,
+    distractionRate,
+    clearHistory,
   };
 }

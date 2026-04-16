@@ -50,14 +50,18 @@ export default function HomeScreen() {
 
   // ── ATTENTION MONITORING (NEW TODAY) ─────────────────
   const {
-    isDistracted,
-    distractionReason,
-    distractionCount,
-    showWarning,
-    dismissWarning,
-    attentionData,
-    analyzeFrame,
-  } = useAttention(driveModeActive);
+  isDistracted,
+  distractionReason,
+  distractionCount,
+  showWarning,
+  warningLevel,
+  dismissWarning,
+  attentionData,
+  analyzeFrame,
+  distractionHistory,
+  distractionRate,
+  clearHistory,
+} = useAttention(driveModeActive);
 
   const startSensors = () => {
     Accelerometer.setUpdateInterval(200);
@@ -149,16 +153,20 @@ export default function HomeScreen() {
         )}
 
         {/* ── CAMERA MONITOR (NEW TODAY) ── */}
-        <CameraMonitor
-          driveModeActive={driveModeActive}
-          isDistracted={isDistracted}
-          distractionReason={distractionReason}
-          distractionCount={distractionCount}
-          showWarning={showWarning}
-          dismissWarning={dismissWarning}
-          attentionData={attentionData}
-          analyzeFrame={analyzeFrame}
-        />
+       <CameraMonitor
+  driveModeActive={driveModeActive}
+  isDistracted={isDistracted}
+  distractionReason={distractionReason}
+  distractionCount={distractionCount}
+  warningLevel={warningLevel}
+  showWarning={showWarning}
+  dismissWarning={dismissWarning}
+  attentionData={attentionData}
+  analyzeFrame={analyzeFrame}
+  distractionHistory={distractionHistory}
+  distractionRate={distractionRate}
+  clearHistory={clearHistory}
+/>
 
         <MessageBlocker
           driveModeActive={driveModeActive}
