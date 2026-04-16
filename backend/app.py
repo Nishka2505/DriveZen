@@ -1,12 +1,4 @@
-# from attention import detect_attention  ← temporarily disabled
-def detect_attention(image_base64):
-    return {
-        'distracted': False,
-        'reason': 'Attention monitoring coming soon',
-        'face_detected': False,
-        'ear_left': 0, 'ear_right': 0,
-        'avg_ear': 0, 'head_tilt': 0,
-    }
+from attention import detect_attention  #← temporarily disabled
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import joblib
@@ -14,6 +6,7 @@ import numpy as np
 import pandas as pd
 import os
 import time
+import startup
 from datetime import datetime
 from config import FEATURE_COLUMNS, LABELS, MODEL_FILE, CONFIDENCE_THRESHOLD
 
@@ -176,5 +169,10 @@ def history():
         'predictions': prediction_history
     })
 
+# Replace the last section with this:
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=True)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') != 'production'
+    print(f"🚗 SafeDrive backend starting on port {port}...")
+    app.run(debug=debug, host='0.0.0.0', port=port)
