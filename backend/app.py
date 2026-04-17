@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import os
 import time
-import startup
+
 from datetime import datetime
 from config import FEATURE_COLUMNS, LABELS, MODEL_FILE, CONFIDENCE_THRESHOLD
 
@@ -173,6 +173,4 @@ def history():
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') != 'production'
-    print(f"🚗 SafeDrive backend starting on port {port}...")
-    app.run(debug=debug, host='0.0.0.0', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)
