@@ -1,12 +1,12 @@
 {
   "expo": {
     "name": "DriveZen",
-    "slug": "driveZen",
+    "slug": "drivezen",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "driveZen",
     "userInterfaceStyle": "dark",
+    "scheme": "drivezen",
+    "icon": "./assets/images/icon.png",
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -14,52 +14,23 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.driveZen.app",
-      "infoPlist": {
-        "NSCameraUsageDescription": "DriveZen uses the front camera to monitor driver attention and detect distraction.",
-        "NSLocationWhenInUseUsageDescription": "DriveZen uses your location to track driving speed.",
-        "NSMotionUsageDescription": "DriveZen uses motion sensors to detect driving activity."
-      }
+      "bundleIdentifier": "com.nishkagg.drivezen"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0d1117"
       },
-      "package": "com.driveZen.app",
-      "permissions": [
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
-      ]
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "package": "com.nishkagg.drivezen"
     },
     "plugins": [
       "expo-router",
       "expo-camera",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "DriveZen needs location access to track driving speed."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#00ff87"
-        }
-      ]
+      "expo-location",
+      "expo-notifications"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     }
   }
 }
