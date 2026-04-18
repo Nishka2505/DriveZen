@@ -11,32 +11,32 @@ import React, { createContext, useContext, useState } from 'react';
 // Example: if your IP is 192.168.1.5, change it to:
 // export const API_URL = 'http://192.168.1.5:5000';
 
-export const API_URL = 'http://192.168.29.60:5000';
+export const API_URL = 'https://drivezen.onrender.com';
 
 const DriveContext = createContext();
 
 export function DriveProvider({ children }) {
 
-  // Drive Mode
+  //Drive Mode
   const [driveModeActive, setDriveModeActive] = useState(false);
 
-  // ML prediction result from backend
+  //ML prediction result from backend
   const [currentActivity, setCurrentActivity] = useState('UNKNOWN');
   const [activityConfidence, setActivityConfidence] = useState(0);
 
-  // Speed from GPS
+  //Speed from GPS
   const [currentSpeed, setCurrentSpeed] = useState(0);
 
-  // Sensor data
+  //Sensor data
   const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0 });
   const [gyroscopeData, setGyroscopeData] = useState({ x: 0, y: 0, z: 0 });
 
-  // API connection status
+  //API connection status
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState(null);
   const [lastPrediction, setLastPrediction] = useState(null);
 
-  // Score
+  //Score
   const [drivingScore, setDrivingScore] = useState(100);
   const [sessionHistory, setSessionHistory] = useState([]);
 
